@@ -4,7 +4,7 @@ FROM debian:12-slim
 # when the build-arg is not supplied (the CI run used `set -u`, which fails on
 # unset parameters).
 ARG RACKET_VERSION=8.8
-ARG RACKET_INSTALLER_URL=https://mirror.racket-lang.org/installers/${RACKET_VERSION}/racket-${RACKET_VERSION}-x86_64-linux.sh
+ARG RACKET_INSTALLER_URL=https://mirror.racket-lang.org/installers/${RACKET_VERSION}/racket-${RACKET_VERSION}-x86_64-linux-buster-cs.sh
 ENV RACKET_INSTALLER_URL=${RACKET_INSTALLER_URL}
 ENV RACKET_VERSION=${RACKET_VERSION}
 
