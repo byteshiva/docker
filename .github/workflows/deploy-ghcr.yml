@@ -46,7 +46,7 @@ jobs:
           chmod +x ./build.sh
           chmod +x ./test.sh
       
-      - name: Build Docker images
+      - name: Build Docker images (AMD64)
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             # Use versions from workflow input
@@ -56,7 +56,7 @@ jobs:
             ./build.sh
           fi
       
-      - name: Test Docker images
+      - name: Test Docker images (AMD64)
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             # Test only the versions we built
@@ -66,7 +66,7 @@ jobs:
             ./test.sh 9.2
           fi
       
-      - name: Tag and push images to GHCR
+      - name: Tag and push AMD64 images to GHCR
         if: success() && (github.event_name != 'workflow_dispatch' || github.event.inputs.push_to_ghcr == 'true')
         run: |
           # Get all built racket images
@@ -80,14 +80,14 @@ jobs:
             VERSIONS_TO_PUSH="9.2 9.1 8.17 8.0 7.9"
           fi
           
-          echo "Pushing versions: $VERSIONS_TO_PUSH"
+          echo "Pushing AMD64 versions: $VERSIONS_TO_PUSH"
           
-          # Push each image with multi-architecture support
+          # Push each image
           for version in $VERSIONS_TO_PUSH; do
             # Find all tags for this version
             for tag in $(docker images --format "{{.Tag}}" | grep "^$version" | sort -u); do
               local_image="racket/racket:$tag"
-              ghcr_image="ghcr.io/${{ github.repository_owner }}/racket:$tag"
+              ghcr_image="ghcr.io/${{ github.repository_owner }}/racket:$tag-amd64"
               
               echo "Tagging $local_image -> $ghcr_image"
               docker tag "$local_image" "$ghcr_image"
@@ -97,43 +97,49 @@ jobs:
             done
           done
           
-          # Push latest tag for the newest stable version
-          echo "Tagging and pushing latest..."
-          docker tag racket/racket:9.2-full ghcr.io/${{ github.repository_owner }}/racket:latest
-          docker push ghcr.io/${{ github.repository_owner }}/racket:latest
-          
-          echo "✅ All images pushed to GHCR"
+          echo "✅ AMD64 images pushed to GHCR"
       
       - name: Build and push Raspberry Pi (ARM) images
         if: success() && (github.event_name != 'workflow_dispatch' || github.event.inputs.push_to_ghcr == 'true')
         run: |
-          # Determine which versions to build for ARM
+          # Determine which versions to build
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSIONS_TO_PUSH="${{ github.event.inputs.versions }}"
+            VERSIONS="${{ github.event.inputs.versions }}"
           else
-            VERSIONS_TO_PUSH="9.2 9.1 8.17 8.0 7.9"
+            VERSIONS="9.2 9.1 8.17 8.0 7.9"
           fi
           
-          echo "Building ARM images for versions: $VERSIONS_TO_PUSH"
+          echo "Building ARM images for versions: $VERSIONS"
           
-          # Enable Docker Buildx for multi-architecture builds
+          # Create and use a multi-architecture builder
           docker buildx create --name multiarch --use
           docker buildx inspect --bootstrap
           
-          for version in $VERSIONS_TO_PUSH; do
+          for version in $VERSIONS; do
             echo "========================================="
             echo "Building Racket $version for Raspberry Pi (ARM)"
             echo "========================================="
             
-            # Build and push multi-arch image (includes ARM)
+            # Build ARM images using build.sh with platform override
+            # We'll use buildx to build ARM versions of the official Racket images
             docker buildx build \
-              --platform linux/amd64,linux/arm64,linux/arm/v7 \
+              --platform linux/arm64,linux/arm/v7 \
               --build-arg RACKET_VERSION="$version" \
-              --tag "ghcr.io/${{ github.repository_owner }}/racket:$version" \
-              --tag "ghcr.io/${{ github.repository_owner }}/racket:$version-full" \
+              --tag "ghcr.io/${{ github.repository_owner }}/racket:$version-arm64" \
+              --tag "ghcr.io/${{ github.repository_owner }}/racket:$version-armv7" \
               --push \
-              -f Dockerfile \
-              .
+              - <<EOF
+            ARG RACKET_VERSION
+            FROM racket/racket:\${RACKET_VERSION}
+            LABEL org.opencontainers.image.source="https://github.com/${{ github.repository }}"
+            LABEL org.opencontainers.image.description="Racket \$RACKET_VERSION for ARM"
+            RUN apt-get update && apt-get install -y --no-install-recommends \
+                build-essential \
+                git \
+                && rm -rf /var/lib/apt/lists/*
+            WORKDIR /app
+            CMD ["racket"]
+            EOF
             
             if [ $? -eq 0 ]; then
               echo "✅ Successfully built and pushed Racket $version for ARM"
@@ -143,23 +149,54 @@ jobs:
             fi
           done
           
-          # Build and push latest tag for ARM
+          # Also build a combined multi-arch manifest
           echo "========================================="
-          echo "Building latest tag for Raspberry Pi (ARM)"
+          echo "Creating multi-architecture manifests"
           echo "========================================="
           
-          docker buildx build \
-            --platform linux/amd64,linux/arm64,linux/arm/v7 \
-            --build-arg RACKET_VERSION="9.2" \
-            --tag "ghcr.io/${{ github.repository_owner }}/racket:latest" \
-            --push \
-            -f Dockerfile \
-            .
+          for version in $VERSIONS; do
+            echo "Creating manifest for Racket $version"
+            
+            # Create a manifest that points to both AMD64 and ARM images
+            docker manifest create \
+              "ghcr.io/${{ github.repository_owner }}/racket:$version" \
+              "ghcr.io/${{ github.repository_owner }}/racket:$version-amd64" \
+              "ghcr.io/${{ github.repository_owner }}/racket:$version-arm64" \
+              "ghcr.io/${{ github.repository_owner }}/racket:$version-armv7"
+            
+            # Push the manifest
+            docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:$version"
+            
+            echo "✅ Created manifest for Racket $version"
+          done
           
-          echo "✅ All ARM images pushed to GHCR"
+          # Create latest manifest
+          echo "Creating latest manifest"
+          docker manifest create \
+            "ghcr.io/${{ github.repository_owner }}/racket:latest" \
+            "ghcr.io/${{ github.repository_owner }}/racket:9.2-amd64" \
+            "ghcr.io/${{ github.repository_owner }}/racket:9.2-arm64" \
+            "ghcr.io/${{ github.repository_owner }}/racket:9.2-armv7"
+          
+          docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:latest"
+          
+          echo "✅ All ARM images and manifests pushed to GHCR"
       
       - name: List pushed images
         if: success()
         run: |
           echo "Pushed images to GHCR:"
-          docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep "ghcr.io" | sort
+          echo ""
+          echo "AMD64 images:"
+          docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep "ghcr.io" | grep "amd64" | sort
+          echo ""
+          echo "ARM images:"
+          docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep "ghcr.io" | grep -E "arm64|armv7" | sort
+          echo ""
+          echo "Multi-architecture manifests (use these for automatic architecture selection):"
+          echo "  ghcr.io/${{ github.repository_owner }}/racket:9.2"
+          echo "  ghcr.io/${{ github.repository_owner }}/racket:9.1"
+          echo "  ghcr.io/${{ github.repository_owner }}/racket:8.17"
+          echo "  ghcr.io/${{ github.repository_owner }}/racket:8.0"
+          echo "  ghcr.io/${{ github.repository_owner }}/racket:7.9"
+          echo "  ghcr.io/${{ github.repository_owner }}/racket:latest"
