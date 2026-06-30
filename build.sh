@@ -75,7 +75,7 @@ build_image() {
     # Compute installer URL for this version and pass it explicitly as a build-arg.
     # This ensures the Docker build always has the correct installer URL and
     # avoids failures when RACKET_INSTALLER_URL is not provided by the caller.
-    local installer_url="https://download.racket-lang.org/installers/racket-${resolved_version}-x86_64-linux.sh"
+    local installer_url="https://mirror.racket-lang.org/installers/${resolved_version}/racket-${resolved_version}-x86_64-linux.sh"
     
     # Build the image (NO PUSH)
     docker build \
