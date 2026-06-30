@@ -60,7 +60,7 @@ jobs:
             ./test.sh ${{ github.event.inputs.versions }}
           else
             # Test all images
-            # ./test.sh
+            ./test.sh 9.2
           fi
       
       - name: Tag and push images to GHCR
