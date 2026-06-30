@@ -15,10 +15,6 @@ on:
         required: true
         default: true
         type: boolean
-      platforms:
-        description: 'Platforms to build for (comma-separated)'
-        required: false
-        default: 'linux/amd64,linux/arm64,linux/arm/v7'
 
 jobs:
   build-and-push:
@@ -50,29 +46,88 @@ jobs:
           chmod +x ./build.sh
           chmod +x ./test.sh
       
-      - name: Build and push multi-architecture Docker images
+      - name: Build Docker images
         run: |
-          # Determine which versions to build
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSIONS="${{ github.event.inputs.versions }}"
-            PLATFORMS="${{ github.event.inputs.platforms }}"
+            # Use versions from workflow input
+            ./build.sh ${{ github.event.inputs.versions }}
           else
-            VERSIONS="9.2 8.17 8.0 7.9"
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7"
+            # Build all versions on push to main
+            ./build.sh
+          fi
+      
+      - name: Test Docker images
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Test only the versions we built
+            ./test.sh ${{ github.event.inputs.versions }}
+          else
+            # Test all images
+            ./test.sh 9.2
+          fi
+      
+      - name: Tag and push images to GHCR
+        if: success() && (github.event_name != 'workflow_dispatch' || github.event.inputs.push_to_ghcr == 'true')
+        run: |
+          # Get all built racket images
+          IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^racket/racket:" | sort -u)
+          
+          # Determine which versions to push
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSIONS_TO_PUSH="${{ github.event.inputs.versions }}"
+          else
+            # On push to main, push specific versions (you can adjust this list)
+            VERSIONS_TO_PUSH="9.2 9.1 8.17 8.0 7.9"
           fi
           
-          echo "Building versions: $VERSIONS"
-          echo "Building for platforms: $PLATFORMS"
+          echo "Pushing versions: $VERSIONS_TO_PUSH"
           
-          # Build and push each version
-          for version in $VERSIONS; do
+          # Push each image with multi-architecture support
+          for version in $VERSIONS_TO_PUSH; do
+            # Find all tags for this version
+            for tag in $(docker images --format "{{.Tag}}" | grep "^$version" | sort -u); do
+              local_image="racket/racket:$tag"
+              ghcr_image="ghcr.io/${{ github.repository_owner }}/racket:$tag"
+              
+              echo "Tagging $local_image -> $ghcr_image"
+              docker tag "$local_image" "$ghcr_image"
+              
+              echo "Pushing $ghcr_image"
+              docker push "$ghcr_image"
+            done
+          done
+          
+          # Push latest tag for the newest stable version
+          echo "Tagging and pushing latest..."
+          docker tag racket/racket:9.2-full ghcr.io/${{ github.repository_owner }}/racket:latest
+          docker push ghcr.io/${{ github.repository_owner }}/racket:latest
+          
+          echo "✅ All images pushed to GHCR"
+      
+      - name: Build and push Raspberry Pi (ARM) images
+        if: success() && (github.event_name != 'workflow_dispatch' || github.event.inputs.push_to_ghcr == 'true')
+        run: |
+          # Determine which versions to build for ARM
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSIONS_TO_PUSH="${{ github.event.inputs.versions }}"
+          else
+            VERSIONS_TO_PUSH="9.2 9.1 8.17 8.0 7.9"
+          fi
+          
+          echo "Building ARM images for versions: $VERSIONS_TO_PUSH"
+          
+          # Enable Docker Buildx for multi-architecture builds
+          docker buildx create --name multiarch --use
+          docker buildx inspect --bootstrap
+          
+          for version in $VERSIONS_TO_PUSH; do
             echo "========================================="
-            echo "Building Racket $version for $PLATFORMS"
+            echo "Building Racket $version for Raspberry Pi (ARM)"
             echo "========================================="
             
-            # Build and push multi-arch image
+            # Build and push multi-arch image (includes ARM)
             docker buildx build \
-              --platform "$PLATFORMS" \
+              --platform linux/amd64,linux/arm64,linux/arm/v7 \
               --build-arg RACKET_VERSION="$version" \
               --tag "ghcr.io/${{ github.repository_owner }}/racket:$version" \
               --tag "ghcr.io/${{ github.repository_owner }}/racket:$version-full" \
@@ -80,63 +135,31 @@ jobs:
               -f Dockerfile \
               .
             
-            # Check if build was successful
             if [ $? -eq 0 ]; then
-              echo "✅ Successfully built and pushed Racket $version"
+              echo "✅ Successfully built and pushed Racket $version for ARM"
             else
-              echo "❌ Failed to build Racket $version"
+              echo "❌ Failed to build Racket $version for ARM"
               exit 1
             fi
           done
           
-          # Build and push latest tag for the newest stable version
+          # Build and push latest tag for ARM
           echo "========================================="
-          echo "Building and pushing latest tag"
+          echo "Building latest tag for Raspberry Pi (ARM)"
           echo "========================================="
           
           docker buildx build \
-            --platform "$PLATFORMS" \
+            --platform linux/amd64,linux/arm64,linux/arm/v7 \
             --build-arg RACKET_VERSION="9.2" \
             --tag "ghcr.io/${{ github.repository_owner }}/racket:latest" \
             --push \
             -f Dockerfile \
             .
           
-          echo "✅ All images pushed to GHCR"
-      
-      - name: Test Docker images (AMD64 only)
-        if: success()
-        run: |
-          # Determine which versions to test
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSIONS_TO_TEST="${{ github.event.inputs.versions }}"
-          else
-            VERSIONS_TO_TEST="9.2"
-          fi
-          
-          echo "Testing versions: $VERSIONS_TO_TEST"
-          
-          for version in $VERSIONS_TO_TEST; do
-            echo "Testing Racket $version"
-            
-            # Test AMD64 version (available on GitHub Actions runner)
-            docker run --rm --platform linux/amd64 "ghcr.io/${{ github.repository_owner }}/racket:$version" racket --version || echo "⚠️ Test failed for $version (may be expected for ARM-only builds)"
-          done
+          echo "✅ All ARM images pushed to GHCR"
       
       - name: List pushed images
         if: success()
         run: |
-          echo "Pushed multi-architecture images to GHCR:"
-          echo ""
-          echo "Available images:"
-          
-          # List all tags pushed
-          for version in 9.2 8.17 8.0 7.9 latest; do
-            echo "  ghcr.io/${{ github.repository_owner }}/racket:$version"
-          done
-          
-          echo ""
-          echo "Each image includes these architectures:"
-          echo "  - linux/amd64 (x86_64)"
-          echo "  - linux/arm64 (ARM 64-bit, including Raspberry Pi 3/4/5)"
-          echo "  - linux/arm/v7 (ARM 32-bit, including Raspberry Pi 2/3)"
+          echo "Pushed images to GHCR:"
+          docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep "ghcr.io" | sort
