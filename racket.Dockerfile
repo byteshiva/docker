@@ -1,4 +1,4 @@
-FROM debian:12-slim
+FROM debian:10-slim
 
 # Provide a sensible default Racket version and installer URL so builds don't fail
 # when the build-arg is not supplied (the CI run used `set -u`, which fails on
