@@ -133,7 +133,7 @@ jobs:
           echo "Building ARM images for versions: $VERSIONS"
           
           # Create and use a multi-architecture builder
-          docker buildx create --name multiarch --use
+          docker buildx create --name multiarch --use || true
           docker buildx inspect --bootstrap
           
           for version in $VERSIONS; do
@@ -176,28 +176,67 @@ jobs:
           for version in $VERSIONS; do
             echo "Creating manifest for Racket $version"
             
-            # Create a manifest that points to both AMD64 and ARM images
-            docker manifest create \
-              "ghcr.io/${{ github.repository_owner }}/racket:$version" \
-              "ghcr.io/${{ github.repository_owner }}/racket:$version-amd64" \
-              "ghcr.io/${{ github.repository_owner }}/racket:$version-arm64" \
-              "ghcr.io/${{ github.repository_owner }}/racket:$version-armv7" 2>/dev/null || true
+            # Check if AMD64 image exists
+            AMD64_EXISTS=$(docker manifest inspect "ghcr.io/${{ github.repository_owner }}/racket:$version-amd64" > /dev/null 2>&1 && echo "yes" || echo "no")
+            ARM64_EXISTS=$(docker manifest inspect "ghcr.io/${{ github.repository_owner }}/racket:$version-arm64" > /dev/null 2>&1 && echo "yes" || echo "no")
+            ARMV7_EXISTS=$(docker manifest inspect "ghcr.io/${{ github.repository_owner }}/racket:$version-armv7" > /dev/null 2>&1 && echo "yes" || echo "no")
             
-            # Push the manifest
-            docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:$version"
+            echo "Image availability: AMD64=$AMD64_EXISTS, ARM64=$ARM64_EXISTS, ARMV7=$ARMV7_EXISTS"
             
-            echo "✅ Created manifest for Racket $version"
+            # Only create manifest if at least two architectures exist
+            if [ "$AMD64_EXISTS" = "yes" ] || [ "$ARM64_EXISTS" = "yes" ] || [ "$ARMV7_EXISTS" = "yes" ]; then
+              # Build the manifest command dynamically
+              MANIFEST_CMD="docker manifest create ghcr.io/${{ github.repository_owner }}/racket:$version"
+              
+              if [ "$AMD64_EXISTS" = "yes" ]; then
+                MANIFEST_CMD="$MANIFEST_CMD ghcr.io/${{ github.repository_owner }}/racket:$version-amd64"
+              fi
+              if [ "$ARM64_EXISTS" = "yes" ]; then
+                MANIFEST_CMD="$MANIFEST_CMD ghcr.io/${{ github.repository_owner }}/racket:$version-arm64"
+              fi
+              if [ "$ARMV7_EXISTS" = "yes" ]; then
+                MANIFEST_CMD="$MANIFEST_CMD ghcr.io/${{ github.repository_owner }}/racket:$version-armv7"
+              fi
+              
+              echo "Running: $MANIFEST_CMD"
+              eval $MANIFEST_CMD
+              
+              # Push the manifest
+              docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:$version"
+              echo "✅ Created manifest for Racket $version"
+            else
+              echo "⚠️ No images found for Racket $version, skipping manifest"
+            fi
           done
           
           # Create latest manifest
           echo "Creating latest manifest"
-          docker manifest create \
-            "ghcr.io/${{ github.repository_owner }}/racket:latest" \
-            "ghcr.io/${{ github.repository_owner }}/racket:9.2-amd64" \
-            "ghcr.io/${{ github.repository_owner }}/racket:9.2-arm64" \
-            "ghcr.io/${{ github.repository_owner }}/racket:9.2-armv7" 2>/dev/null || true
           
-          docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:latest"
+          # Check if 9.2 images exist
+          AMD64_EXISTS=$(docker manifest inspect "ghcr.io/${{ github.repository_owner }}/racket:9.2-amd64" > /dev/null 2>&1 && echo "yes" || echo "no")
+          ARM64_EXISTS=$(docker manifest inspect "ghcr.io/${{ github.repository_owner }}/racket:9.2-arm64" > /dev/null 2>&1 && echo "yes" || echo "no")
+          ARMV7_EXISTS=$(docker manifest inspect "ghcr.io/${{ github.repository_owner }}/racket:9.2-armv7" > /dev/null 2>&1 && echo "yes" || echo "no")
+          
+          if [ "$AMD64_EXISTS" = "yes" ] || [ "$ARM64_EXISTS" = "yes" ] || [ "$ARMV7_EXISTS" = "yes" ]; then
+            LATEST_CMD="docker manifest create ghcr.io/${{ github.repository_owner }}/racket:latest"
+            
+            if [ "$AMD64_EXISTS" = "yes" ]; then
+              LATEST_CMD="$LATEST_CMD ghcr.io/${{ github.repository_owner }}/racket:9.2-amd64"
+            fi
+            if [ "$ARM64_EXISTS" = "yes" ]; then
+              LATEST_CMD="$LATEST_CMD ghcr.io/${{ github.repository_owner }}/racket:9.2-arm64"
+            fi
+            if [ "$ARMV7_EXISTS" = "yes" ]; then
+              LATEST_CMD="$LATEST_CMD ghcr.io/${{ github.repository_owner }}/racket:9.2-armv7"
+            fi
+            
+            echo "Running: $LATEST_CMD"
+            eval $LATEST_CMD
+            docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:latest"
+            echo "✅ Created latest manifest"
+          else
+            echo "⚠️ No images found for latest, skipping"
+          fi
           
           echo "✅ All manifests created and pushed"
       
