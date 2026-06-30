@@ -1,5 +1,10 @@
 FROM debian:10-slim
 
+# Use archive mirrors for Debian 10 (Buster) since it's end-of-life
+RUN sed -i 's/deb.debian.org/archive.debian.org/g' /etc/apt/sources.list && \
+    sed -i 's/security.debian.org/archive.debian.org/g' /etc/apt/sources.list && \
+    sed -i 's|/debian-security |/debian-security |g' /etc/apt/sources.list
+
 # Provide a sensible default Racket version and installer URL so builds don't fail
 # when the build-arg is not supplied (the CI run used `set -u`, which fails on
 # unset parameters).
