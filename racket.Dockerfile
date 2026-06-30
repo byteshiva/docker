@@ -1,7 +1,12 @@
 FROM debian:12-slim
 
-ARG RACKET_INSTALLER_URL
-ARG RACKET_VERSION
+# Provide a sensible default Racket version and installer URL so builds don't fail
+# when the build-arg is not supplied (the CI run used `set -u`, which fails on
+# unset parameters).
+ARG RACKET_VERSION=8.8
+ARG RACKET_INSTALLER_URL=https://download.racket-lang.org/installers/racket-${RACKET_VERSION}-x86_64-linux.sh
+ENV RACKET_INSTALLER_URL=${RACKET_INSTALLER_URL}
+ENV RACKET_VERSION=${RACKET_VERSION}
 
 # Ensure curl, bash and CA certs are available before trying to download the installer
 RUN set -eux \
