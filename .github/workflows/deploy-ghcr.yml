@@ -104,12 +104,18 @@ jobs:
           cat > Dockerfile.arm << 'EOF'
           ARG RACKET_VERSION
           FROM racket/racket:${RACKET_VERSION}
-          LABEL org.opencontainers.image.source="https://github.com/${{ github.repository }}"
-          LABEL org.opencontainers.image.description="Racket for ARM"
+          
+          # Fix Debian repository issues by using specific codename
+          RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
+              echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+              echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list
+          
           RUN apt-get update && apt-get install -y --no-install-recommends \
               build-essential \
               git \
+              ca-certificates \
               && rm -rf /var/lib/apt/lists/*
+          
           WORKDIR /app
           CMD ["racket"]
           EOF
@@ -175,7 +181,7 @@ jobs:
               "ghcr.io/${{ github.repository_owner }}/racket:$version" \
               "ghcr.io/${{ github.repository_owner }}/racket:$version-amd64" \
               "ghcr.io/${{ github.repository_owner }}/racket:$version-arm64" \
-              "ghcr.io/${{ github.repository_owner }}/racket:$version-armv7" || true
+              "ghcr.io/${{ github.repository_owner }}/racket:$version-armv7" 2>/dev/null || true
             
             # Push the manifest
             docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:$version"
@@ -189,7 +195,7 @@ jobs:
             "ghcr.io/${{ github.repository_owner }}/racket:latest" \
             "ghcr.io/${{ github.repository_owner }}/racket:9.2-amd64" \
             "ghcr.io/${{ github.repository_owner }}/racket:9.2-arm64" \
-            "ghcr.io/${{ github.repository_owner }}/racket:9.2-armv7" || true
+            "ghcr.io/${{ github.repository_owner }}/racket:9.2-armv7" 2>/dev/null || true
           
           docker manifest push "ghcr.io/${{ github.repository_owner }}/racket:latest"
           
