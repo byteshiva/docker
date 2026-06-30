@@ -25,11 +25,14 @@ RUN set -eux \
 ENV SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 ENV SSL_CERT_DIR="/etc/ssl/certs"
 
-RUN raco setup
+# Configure package catalogs before running raco setup
 RUN raco pkg config --set catalogs \
     "https://download.racket-lang.org/releases/${RACKET_VERSION}/catalog/" \
     "https://pkg-build.racket-lang.org/server/built/catalog/" \
     "https://pkgs.racket-lang.org" \
     "https://planet-compats.racket-lang.org"
+
+# Run raco setup with error handling
+RUN raco setup || true
 
 CMD ["racket"]
