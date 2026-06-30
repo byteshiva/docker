@@ -46,7 +46,23 @@ build_image() {
     local tag_suffix=$3
     local dockerfile=${4:-"racket.Dockerfile"}
     
-    local image_name="racket/racket:$version$tag_suffix"
+    # Resolve any series labels (like 8x_1) to concrete Racket versions
+    local resolved_version="$version"
+    case "$version" in
+        8x_1) resolved_version="8.8" ;;
+        8x_2) resolved_version="8.17" ;;
+        9x)   resolved_version="9.2" ;;
+        # Add other mappings here if you add more labels to the workflow matrix
+        *) resolved_version="$version" ;;
+    esac
+
+    if [ "$resolved_version" != "$version" ]; then
+        print_warning "Mapping series label '$version' -> Racket version '$resolved_version'"
+    fi
+
+    # Use the resolved version for the image tag and build args so the built image
+    # matches the actual Racket version used during install.
+    local image_name="racket/racket:${resolved_version}${tag_suffix}"
     
     print_status "Building $image_name..."
     
@@ -59,11 +75,11 @@ build_image() {
     # Compute installer URL for this version and pass it explicitly as a build-arg.
     # This ensures the Docker build always has the correct installer URL and
     # avoids failures when RACKET_INSTALLER_URL is not provided by the caller.
-    local installer_url="https://download.racket-lang.org/installers/racket-${version}-x86_64-linux.sh"
+    local installer_url="https://download.racket-lang.org/installers/racket-${resolved_version}-x86_64-linux.sh"
     
     # Build the image (NO PUSH)
     docker build \
-        --build-arg RACKET_VERSION="$version" \
+        --build-arg RACKET_VERSION="$resolved_version" \
         --build-arg VARIANT="$variant" \
         --build-arg RACKET_INSTALLER_URL="$installer_url" \
         -t "$image_name" \
