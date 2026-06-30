@@ -20,16 +20,23 @@ print_warning() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
-# If versions provided as arguments, test only those
+# If versions provided as arguments, test only those that were built
 if [ $# -eq 0 ]; then
     # Get all built racket images
     IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^racket/racket:" | sort -u)
 else
-    # Build image names from version arguments
+    # Only test images that actually exist
     IMAGES=""
-    for version in "$@"; do
-        for suffix in "" "-minimal" "-full" "-cs" "-cs-full" "-bc" "-bc-full"; do
-            IMAGES="$IMAGES racket/racket:$version$suffix"
+    for image_tag in $(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^racket/racket:"); do
+        # Extract version from tag (e.g., "9.2-cs-full" -> "9.2")
+        version=$(echo "$image_tag" | sed 's/:/-/' | cut -d'-' -f2)
+        
+        # Check if this version was requested
+        for requested_version in "$@"; do
+            if [ "$version" = "$requested_version" ]; then
+                IMAGES="$IMAGES $image_tag"
+                break
+            fi
         done
     done
 fi
