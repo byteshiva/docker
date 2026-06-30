@@ -3,13 +3,14 @@ FROM debian:12-slim
 ARG RACKET_INSTALLER_URL
 ARG RACKET_VERSION
 
-# Ensure curl and CA certs are available before trying to download the installer
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+# Ensure curl, bash and CA certs are available before trying to download the installer
+RUN set -eux \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates bash \
     && rm -rf /var/lib/apt/lists/* \
-    && curl --retry 5 -Ls "${RACKET_INSTALLER_URL}" > racket-install.sh \
-    && echo "yes\n1\n" | sh racket-install.sh --create-dir --unix-style --dest /usr/ \
-    && rm racket-install.sh
+    && curl --retry 5 -fLs "${RACKET_INSTALLER_URL}" -o racket-install.sh \
+    && printf 'yes\n1\n' | bash racket-install.sh --create-dir --unix-style --dest /usr/ \
+    && rm -f racket-install.sh
 
 ENV SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 ENV SSL_CERT_DIR="/etc/ssl/certs"
